@@ -79,6 +79,53 @@ main header{padding-top:0.65rem!important;padding-bottom:0.65rem!important}
   .btn{min-height:44px}
 }
 
+
+/* Correção mobile final: calendário e menu */
+@media (max-width:1023px){
+  .calendar-scroll{
+    overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
+    padding-bottom:.5rem;
+  }
+  .calendar-grid{
+    display:grid!important;
+    grid-template-columns:repeat(7,minmax(92px,1fr))!important;
+    min-width:700px;
+  }
+  .calendar-grid > div{
+    min-height:88px!important;
+  }
+  .calendar-tools{
+    display:grid!important;
+    grid-template-columns:1fr!important;
+    gap:.65rem!important;
+  }
+  .calendar-tools .input,
+  .calendar-tools button{
+    width:100%!important;
+  }
+  .mobile-menu-btn{
+    min-width:44px;
+    justify-content:center;
+  }
+  main header{
+    gap:.75rem;
+  }
+  main header .text-right{
+    display:none!important;
+  }
+}
+@media (max-width:480px){
+  .calendar-grid{
+    grid-template-columns:repeat(7,minmax(78px,1fr))!important;
+    min-width:610px;
+  }
+  .calendar-grid > div{
+    min-height:76px!important;
+    padding:.55rem!important;
+  }
+}
+
 </style>
 </head>
 <body>
@@ -508,7 +555,7 @@ function shell(content){
     <main class="lg:ml-72">
       <header class="sticky top-0 z-10 flex items-center justify-between border-b bg-white/90 px-5 py-4 backdrop-blur lg:px-9">
         <div class="flex items-center gap-3">
-          <button type="button" onclick="openMobileMenu()" class="mobile-menu-btn btn border bg-white text-slate-700">☰</button>
+          <button type="button" onclick="openMobileMenu()" class="mobile-menu-btn btn border bg-white text-slate-700" aria-label="Abrir menu">☰</button>
           <div><h2 class="text-xl font-bold lg:text-2xl">${esc(page)}</h2><p class="text-sm text-slate-500">Firestore em tempo real</p></div>
         </div>
         <div class="flex items-center gap-3">
