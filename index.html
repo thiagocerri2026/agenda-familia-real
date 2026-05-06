@@ -126,6 +126,40 @@ main header{padding-top:0.65rem!important;padding-bottom:0.65rem!important}
   }
 }
 
+
+/* Calendário mobile em lista */
+.mobile-calendar-list{display:none}
+.desktop-calendar-grid{display:block}
+@media (max-width:1023px){
+  .desktop-calendar-grid{display:none!important}
+  .mobile-calendar-list{display:block!important}
+  .mobile-day-card{
+    border:1px solid #e5e7eb;
+    border-radius:1rem;
+    background:#fff;
+    padding:1rem;
+    margin-bottom:.75rem;
+  }
+  .mobile-day-title{
+    font-weight:800;
+    color:#010770;
+    margin-bottom:.45rem;
+  }
+  .mobile-event{
+    border-radius:.8rem;
+    background:#eef2ff;
+    color:#010770;
+    padding:.65rem;
+    font-size:.9rem;
+    margin-top:.4rem;
+  }
+}
+
+
+@media (max-width:1023px){
+  .desktop-calendar-grid .grid{grid-template-columns:repeat(7,minmax(92px,1fr))!important}
+}
+
 </style>
 </head>
 <body>
@@ -751,7 +785,7 @@ function calendario(){
     grid+=`<div class="min-h-32 border-t bg-white p-3">
       <div class="mb-2 text-sm font-bold">${day}</div>
       ${evs.map(e=>`<div class="mb-2 rounded-xl bg-[#010770]/10 px-2 py-2 text-xs text-[#010770]">
-        <b>${esc(e.startTime)}</b><br>${esc(title(e))}
+        <b>${esc(e.startTime||'')}</b><br>${esc(title(e))}
       </div>`).join('')}
     </div>`;
   }
@@ -762,28 +796,48 @@ function calendario(){
     grid+=`<div class="min-h-32 border-t bg-white p-3"></div>`;
   }
 
-  shell(`<section class="p-5 lg:p-9">
-    <div class="mb-6 rounded-3xl bg-[#040036] p-6 text-white">
-      <h3 class="text-2xl font-bold">Agenda mensal</h3>
-      <p class="text-sm text-slate-200">Visualização por mês • ${monthName(calendarMonth)}</p>
-    </div>
+  let mobileList='';
+  for(let day=1;day<=lastDate;day++){
+    let dateStr=calendarMonth+'-'+String(day).padStart(2,'0');
+    let evs=approved.filter(r=>r.date===dateStr);
+    if(evs.length){
+      mobileList+=`<div class="mobile-day-card">
+        <div class="mobile-day-title">${day} • ${days[new Date(year,month-1,day).getDay()]}</div>
+        ${evs.map(e=>`<div class="mobile-event"><b>${esc(e.startTime||'')} - ${esc(e.endTime||'')}</b><br>${esc(title(e))}<br><span class="text-slate-500">${esc(e.location||'')}</span></div>`).join('')}
+      </div>`;
+    }
+  }
 
-    <div class="card p-6">
-      <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
+  if(!mobileList){
+    mobileList=`<div class="mobile-day-card text-center text-slate-500">Nenhuma agenda aprovada neste mês.</div>`;
+  }
+
+  shell(`<section class="p-5 lg:p-8">
+    ${hero('Agenda mensal','Agenda mensal','Visualização por mês • '+monthName(calendarMonth))}
+
+    <div class="card p-5">
+      <div class="mb-5 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h4 class="text-lg font-bold">${monthName(calendarMonth)}</h4>
+          <h3 class="text-lg font-bold">${monthName(calendarMonth)}</h3>
           <p class="text-sm text-slate-500">${approved.length} agenda(s) aprovada(s) neste mês</p>
         </div>
-
-        <div class="flex flex-wrap items-center gap-2">
-          <button onclick="changeCalendarMonth(-1)" class="btn border bg-white text-slate-700">⬅ Mês anterior</button>
-          <input type="month" value="${calendarMonth}" onchange="setCalendarMonth(this.value)" class="input max-w-[210px]">
-          <button onclick="changeCalendarMonth(1)" class="btn border bg-white text-slate-700">Próximo mês ➡</button>
+        <div class="calendar-tools flex flex-wrap items-center gap-3">
+          <button onclick="changeCalendarMonth(-1)" class="btn border bg-white">← Mês anterior</button>
+          <input type="month" class="input max-w-xs" value="${calendarMonth}" onchange="setCalendarMonth(this.value)">
+          <button onclick="changeCalendarMonth(1)" class="btn border bg-white">Próximo mês →</button>
         </div>
       </div>
 
-      <div class="grid grid-cols-7 overflow-hidden rounded-2xl border">
-        ${grid}
+      <div class="desktop-calendar-grid">
+        <div class="overflow-x-auto">
+          <div class="overflow-hidden rounded-3xl border">
+            <div class="grid grid-cols-7 min-w-[760px]">${grid}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mobile-calendar-list">
+        ${mobileList}
       </div>
     </div>
   </section>`);
