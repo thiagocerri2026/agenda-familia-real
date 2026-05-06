@@ -160,6 +160,36 @@ main header{padding-top:0.65rem!important;padding-bottom:0.65rem!important}
   .desktop-calendar-grid .grid{grid-template-columns:repeat(7,minmax(92px,1fr))!important}
 }
 
+
+/* Menu mobile final independente */
+#afrMobileBackdrop{
+  display:none;
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,.55);
+  z-index:9998;
+}
+#afrMobileBackdrop.open{display:block}
+#afrMobileMenu{
+  position:fixed;
+  top:0;
+  left:0;
+  bottom:0;
+  width:84vw;
+  max-width:330px;
+  background:#040036;
+  color:white;
+  z-index:9999;
+  transform:translateX(-110%);
+  transition:transform .22s ease;
+  overflow-y:auto;
+  box-shadow:0 20px 70px rgba(0,0,0,.45);
+}
+#afrMobileMenu.open{transform:translateX(0)}
+@media (min-width:1024px){
+  #afrMobileMenu,#afrMobileBackdrop{display:none!important}
+}
+
 </style>
 </head>
 <body>
@@ -559,38 +589,55 @@ document.addEventListener('keydown', function(ev){
   }
 });
 
+
+function openAfrMobileMenu(){
+  const m=document.getElementById('afrMobileMenu');
+  const b=document.getElementById('afrMobileBackdrop');
+  if(m) m.classList.add('open');
+  if(b) b.classList.add('open');
+}
+function closeAfrMobileMenu(){
+  const m=document.getElementById('afrMobileMenu');
+  const b=document.getElementById('afrMobileBackdrop');
+  if(m) m.classList.remove('open');
+  if(b) b.classList.remove('open');
+}
+window.openAfrMobileMenu=openAfrMobileMenu;
+window.closeAfrMobileMenu=closeAfrMobileMenu;
+
 function shell(content){
   const navHtml = menu().map(m=>{
     if(m==='Cadastros'){
       const cadActive = page==='Cadastros' || page==='Usuários' || page==='Ministérios';
       return `<div class="space-y-2">
-        <button onclick="setPage('Usuários');closeMobileMenu()" class="w-full rounded-2xl px-4 py-3 text-left text-sm transition ${cadActive?'bg-orange-500 text-white shadow-lg':'text-slate-300 hover:bg-white/10'}">Cadastros</button>
+        <button type="button" onclick="setPage('Usuários');closeAfrMobileMenu()" class="w-full rounded-2xl px-4 py-3 text-left text-sm transition ${cadActive?'bg-orange-500 text-white shadow-lg':'text-slate-300 hover:bg-white/10'}">Cadastros</button>
         <div class="ml-5 space-y-1 border-l border-white/15 pl-3">
-          <button onclick="setPage('Usuários');closeMobileMenu()" class="w-full rounded-xl px-4 py-2 text-left text-sm transition ${page==='Usuários'?'bg-white/15 text-white font-semibold':'text-slate-300 hover:bg-white/10'}">Usuários</button>
-          <button onclick="setPage('Ministérios');closeMobileMenu()" class="w-full rounded-xl px-4 py-2 text-left text-sm transition ${page==='Ministérios'?'bg-white/15 text-white font-semibold':'text-slate-300 hover:bg-white/10'}">Ministérios</button>
+          <button type="button" onclick="setPage('Usuários');closeAfrMobileMenu()" class="w-full rounded-xl px-4 py-2 text-left text-sm transition ${page==='Usuários'?'bg-white/15 text-white font-semibold':'text-slate-300 hover:bg-white/10'}">Usuários</button>
+          <button type="button" onclick="setPage('Ministérios');closeAfrMobileMenu()" class="w-full rounded-xl px-4 py-2 text-left text-sm transition ${page==='Ministérios'?'bg-white/15 text-white font-semibold':'text-slate-300 hover:bg-white/10'}">Ministérios</button>
         </div>
       </div>`;
     }
-    return `<button onclick="setPage('${m}');closeMobileMenu()" class="w-full rounded-2xl px-4 py-3 text-left text-sm transition ${page===m?'bg-orange-500 text-white shadow-lg':'text-slate-300 hover:bg-white/10'}">${m}</button>`;
+    return `<button type="button" onclick="setPage('${m}');closeAfrMobileMenu()" class="w-full rounded-2xl px-4 py-3 text-left text-sm transition ${page===m?'bg-orange-500 text-white shadow-lg':'text-slate-300 hover:bg-white/10'}">${m}</button>`;
   }).join('');
 
-  const brand = `<div class="mb-10 flex items-center gap-4">
-    <div class="bg-white rounded-3xl p-3 shadow-md"><img src="${LOGO}" class="h-14 w-14 object-contain"></div>
-    <div><h1 class="text-2xl font-black leading-tight tracking-tight">Agenda Família Real</h1><div class="mt-1 h-1 w-16 rounded-full bg-orange-500"></div></div>
+  const brand = `<div class="mb-8 flex items-center gap-4">
+    <div class="bg-white rounded-3xl p-3 shadow-md"><img src="${LOGO}" class="h-12 w-12 object-contain"></div>
+    <div><h1 class="text-xl font-black leading-tight tracking-tight">Agenda Família Real</h1><div class="mt-1 h-1 w-14 rounded-full bg-orange-500"></div></div>
   </div>`;
 
-  const sidebar = `<div class="p-7">${brand}<nav class="space-y-2">${navHtml}</nav></div>`;
+  const sidebar = `<div class="p-6">${brand}<nav class="space-y-2">${navHtml}</nav></div>`;
 
   el.innerHTML=`<div class="min-h-screen bg-[#f5f6fb] text-slate-900">
-    <div id="mobileBackdrop" class="mobile-backdrop" onclick="closeMobileMenu()"></div>
-    <aside id="mobileSidebar" class="mobile-sidebar bg-[#040036] text-white lg:hidden">${sidebar}</aside>
+    <div id="afrMobileBackdrop" onclick="closeAfrMobileMenu()"></div>
+    <aside id="afrMobileMenu">${sidebar}</aside>
+
     <aside class="fixed left-0 top-0 hidden h-full w-72 bg-[#040036] text-white lg:block">${sidebar}</aside>
 
     <main class="lg:ml-72">
-      <header class="sticky top-0 z-10 flex items-center justify-between border-b bg-white/90 px-5 py-4 backdrop-blur lg:px-9">
+      <header class="sticky top-0 z-10 flex items-center justify-between border-b bg-white/90 px-4 py-3 backdrop-blur lg:px-9">
         <div class="flex items-center gap-3">
-          <button type="button" onclick="openMobileMenu()" class="mobile-menu-btn btn border bg-white text-slate-700" aria-label="Abrir menu">☰</button>
-          <div><h2 class="text-xl font-bold lg:text-2xl">${esc(page)}</h2><p class="text-sm text-slate-500">Firestore em tempo real</p></div>
+          <button type="button" onclick="openAfrMobileMenu()" class="lg:hidden rounded-2xl border bg-white px-4 py-3 text-slate-700 shadow-sm" aria-label="Abrir menu">☰</button>
+          <div><h2 class="text-lg font-bold lg:text-2xl">${esc(page)}</h2><p class="text-xs text-slate-500 lg:text-sm">Firestore em tempo real</p></div>
         </div>
         <div class="flex items-center gap-3">
           <div class="hidden text-right text-sm sm:block"><div class="font-semibold">${esc(user.name)}</div><div class="text-slate-500">${esc(primaryRole())}</div></div>
