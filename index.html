@@ -21,6 +21,64 @@ aside .w-12{width:2.5rem!important}
 main header{padding-top:0.65rem!important;padding-bottom:0.65rem!important}
 .min-h-32{min-height:7rem!important}
 
+
+/* Responsivo mobile */
+.mobile-menu-btn{display:none}
+@media (max-width:1023px){
+  html{font-size:13px}
+  body{overflow-x:hidden}
+  .mobile-menu-btn{display:inline-flex}
+  .mobile-sidebar{
+    position:fixed;
+    inset:0 auto 0 0;
+    width:82vw;
+    max-width:320px;
+    transform:translateX(-105%);
+    transition:transform .25s ease;
+    z-index:50;
+    box-shadow:0 20px 60px rgba(0,0,0,.35);
+  }
+  .mobile-sidebar.open{transform:translateX(0)}
+  .mobile-backdrop{
+    display:none;
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,.45);
+    z-index:45;
+  }
+  .mobile-backdrop.open{display:block}
+  main{margin-left:0!important}
+  main header{
+    position:sticky;
+    top:0;
+    padding:.75rem 1rem!important;
+  }
+  main header h2{font-size:1.2rem!important}
+  main header .btn{padding:.55rem .8rem!important}
+  section{padding:1rem!important}
+  .card{padding:1rem!important;border-radius:1.1rem!important}
+  .grid{grid-template-columns:1fr!important}
+  .md\:grid-cols-2,.md\:grid-cols-3,.md\:grid-cols-4,.xl\:grid-cols-\[1\.3fr_0\.7fr\],.xl\:grid-cols-\[1\.1fr_0\.9fr\],.xl\:grid-cols-\[0\.8fr_1\.2fr\],.xl\:grid-cols-\[0\.82fr_1\.18fr\]{grid-template-columns:1fr!important}
+  .flex{flex-wrap:wrap}
+  .input{width:100%!important}
+  table{min-width:760px}
+  .overflow-x-auto{overflow-x:auto}
+  .min-h-32{min-height:6rem!important}
+  .rounded-3xl{border-radius:1.1rem!important}
+}
+@media print{
+  .mobile-menu-btn,.mobile-backdrop{display:none!important}
+}
+
+
+/* Produção mobile refinado */
+@media (max-width:640px){
+  .login-card-prod{padding:1.25rem!important}
+  .login-logo-prod{height:5.5rem!important;width:5.5rem!important}
+  .login-title-prod{font-size:2rem!important;line-height:1.05!important}
+  .btn{min-height:44px}
+}
+
 </style>
 </head>
 <body>
@@ -68,14 +126,22 @@ function setPage(p){if(p!=='Nova Solicitação')editingId=null;page=p;render()} 
 
 async function login(e){
   if(e && e.preventDefault) e.preventDefault();
+  if(e && e.stopPropagation) e.stopPropagation();
 
-  const usuario=document.getElementById('loginUser').value.trim().toLowerCase();
-  const senha=document.getElementById('loginPass').value.trim();
+  const usuarioEl=document.getElementById('loginUser');
+  const senhaEl=document.getElementById('loginPass');
   const msg=document.getElementById('loginMsg');
+
+  const usuario=(usuarioEl?.value||'').trim().toLowerCase();
+  const senha=(senhaEl?.value||'').trim();
 
   if(msg) msg.innerText='';
 
   try{
+    if(!usuario || !senha){
+      throw new Error('Informe usuário e senha.');
+    }
+
     const snap=await getDocs(collection(db,'usuarios'));
     let profile=null;
 
@@ -90,7 +156,7 @@ async function login(e){
       }
     });
 
-    // Recuperação inicial: se não existir usuário local, cria admin/admin
+    // Recuperação inicial do Admin, caso o usuário ainda não exista.
     if(!profile && usuario==='admin' && senha==='admin'){
       const adminId='user_admin';
       const adminProfile={
@@ -116,8 +182,6 @@ async function login(e){
       throw new Error('Usuário inativo');
     }
 
-    // Recuperação para usuários antigos sem senhaLocal.
-    // Para o Thiago/Admin, a senha provisória inicial é "admin".
     if(!profile.senhaLocal){
       const roles=Array.isArray(profile.roles)?profile.roles:(profile.role?String(profile.role).split(',').map(x=>x.trim()).filter(Boolean):[]);
       const isAdmin=roles.includes('Admin');
@@ -133,7 +197,7 @@ async function login(e){
         profile.senhaLocal='admin';
         profile.username=profile.username || 'thiago';
       }else{
-        throw new Error('Usuário antigo sem senha local. Use a senha provisória admin ou ajuste no Firestore.');
+        throw new Error('Usuário sem senha local definida.');
       }
     }
 
@@ -158,9 +222,11 @@ async function login(e){
     toast('Login realizado');
     render();
   }catch(err){
-    console.error(err);
-    if(msg) msg.innerText='Erro no login: usuário ou senha inválidos.';
+    console.error('Erro no login:', err);
+    if(msg) msg.innerText='Erro no login: '+(err.message||'usuário ou senha inválidos.');
   }
+
+  return false;
 }
 
 async function createUserByAdmin(e){
@@ -366,21 +432,95 @@ async function deleteSolicitacao(id){
   }
 }
 
-function loginView(){el.innerHTML=`<div class="min-h-screen bg-[#040036] flex items-center justify-center p-6"><div class="w-full max-w-md"><div class="text-center mb-8"><div class="mx-auto h-28 w-28 rounded-3xl bg-white shadow-xl flex items-center justify-center p-4"><img src="${LOGO}" class="h-full w-full object-contain"></div><h1 class="mt-6 text-3xl font-black text-white">Agenda Família Real</h1><p class="text-slate-300 text-sm mt-1">Login local</p></div><div class="card p-8"><form onsubmit="login(event)" class="space-y-4"><div><label class="label">Usuário</label><input id="loginUser" class="input" placeholder="Ex: thiago, marcio, pastor"></div><div><label class="label">Senha</label><input id="loginPass" type="password" class="input" placeholder="Senha"></div><div id="loginMsg" class="text-red-600 text-sm"></div><button class="btn bg-orange-500 text-white w-full">Entrar</button><div class="bg-slate-100 text-slate-600 rounded-2xl p-3 text-xs">Primeiro acesso do Admin: usuário thiago / senha admin. Depois altere a senha.</div></form></div></div></div>`}
-
-function shell(content){el.innerHTML=`<div class="min-h-screen bg-[#f5f6fb] text-slate-900"><aside class="fixed left-0 top-0 hidden h-full w-72 bg-[#040036] text-white lg:block"><div class="p-7"><div class="mb-10 flex items-center gap-4"><div class="bg-white rounded-3xl p-3 shadow-md"><img src="${LOGO}" class="h-14 w-14 object-contain"></div><div><h1 class="text-2xl font-black leading-tight tracking-tight">Agenda Família Real</h1><div class="mt-1 h-1 w-16 rounded-full bg-orange-500"></div></div></div><nav class="space-y-2">${menu().map(m=>{
-  if(m==='Cadastros'){
-    const cadActive = page==='Cadastros' || page==='Usuários' || page==='Ministérios';
-    return `<div class="space-y-2">
-      <button onclick="setPage('Usuários')" class="w-full rounded-2xl px-4 py-3 text-left text-sm transition ${cadActive?'bg-orange-500 text-white shadow-lg':'text-slate-300 hover:bg-white/10'}">Cadastros</button>
-      <div class="ml-5 space-y-1 border-l border-white/15 pl-3">
-        <button onclick="setPage('Usuários')" class="w-full rounded-xl px-4 py-2 text-left text-sm transition ${page==='Usuários'?'bg-white/15 text-white font-semibold':'text-slate-300 hover:bg-white/10'}">Usuários</button>
-        <button onclick="setPage('Ministérios')" class="w-full rounded-xl px-4 py-2 text-left text-sm transition ${page==='Ministérios'?'bg-white/15 text-white font-semibold':'text-slate-300 hover:bg-white/10'}">Ministérios</button>
+function loginView(){
+  el.innerHTML=`<div class="min-h-screen bg-[#040036] flex items-center justify-center p-4 sm:p-6">
+    <div class="w-full max-w-md">
+      <div class="text-center mb-7">
+        <div class="login-logo-prod mx-auto h-24 w-24 sm:h-28 sm:w-28 rounded-3xl bg-white shadow-xl flex items-center justify-center p-4">
+          <img src="${LOGO}" class="h-full w-full object-contain">
+        </div>
+        <h1 class="login-title-prod mt-5 text-3xl sm:text-4xl font-black text-white">Agenda Família Real</h1>
+        <p class="text-slate-300 text-sm mt-1">Login local</p>
       </div>
-    </div>`;
+
+      <div class="card login-card-prod p-6 sm:p-8">
+        <form id="loginFormLocal" onsubmit="return login(event)" class="space-y-4">
+          <div>
+            <label class="label">Usuário</label>
+            <input id="loginUser" class="input" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="Ex: thiago">
+          </div>
+          <div>
+            <label class="label">Senha</label>
+            <input id="loginPass" type="password" autocomplete="current-password" class="input" placeholder="Senha">
+          </div>
+          <div id="loginMsg" class="text-red-600 text-sm font-semibold"></div>
+          <button id="btnLoginLocal" type="submit" onclick="login(event)" class="btn bg-orange-500 text-white w-full">Entrar</button>
+          
+        </form>
+      </div>
+    </div>
+  </div>`;
+}
+
+
+document.addEventListener('click', function(ev){
+  const btn = ev.target.closest('#btnLoginLocal');
+  if(btn){
+    ev.preventDefault();
+    ev.stopPropagation();
+    login(ev);
   }
-  return `<button onclick="setPage('${m}')" class="w-full rounded-2xl px-4 py-3 text-left text-sm transition ${page===m?'bg-orange-500 text-white shadow-lg':'text-slate-300 hover:bg-white/10'}">${m}</button>`;
-}).join('')}</nav></div></aside><main class="lg:ml-72"><header class="sticky top-0 z-10 flex items-center justify-between border-b bg-white/90 px-5 py-4 backdrop-blur lg:px-9"><div><h2 class="text-xl font-bold lg:text-2xl">${esc(page)}</h2><p class="text-sm text-slate-500">Firestore em tempo real</p></div><div class="flex items-center gap-3"><div class="hidden text-right text-sm sm:block"><div class="font-semibold">${esc(user.name)}</div><div class="text-slate-500">${esc(primaryRole())}</div></div>${!hasRole('Pastor')?`<button onclick="setPage('Nova Solicitação')" class="btn bg-[#010770] text-white">＋ Nova Solicitação</button>`:''}<button onclick="logout()" class="btn border bg-white text-slate-700">Sair</button></div></header>${content}</main></div>`}
+});
+document.addEventListener('keydown', function(ev){
+  if(ev.key==='Enter' && ev.target && ev.target.closest && ev.target.closest('#loginFormLocal')){
+    ev.preventDefault();
+    login(ev);
+  }
+});
+
+function shell(content){
+  const navHtml = menu().map(m=>{
+    if(m==='Cadastros'){
+      const cadActive = page==='Cadastros' || page==='Usuários' || page==='Ministérios';
+      return `<div class="space-y-2">
+        <button onclick="setPage('Usuários');closeMobileMenu()" class="w-full rounded-2xl px-4 py-3 text-left text-sm transition ${cadActive?'bg-orange-500 text-white shadow-lg':'text-slate-300 hover:bg-white/10'}">Cadastros</button>
+        <div class="ml-5 space-y-1 border-l border-white/15 pl-3">
+          <button onclick="setPage('Usuários');closeMobileMenu()" class="w-full rounded-xl px-4 py-2 text-left text-sm transition ${page==='Usuários'?'bg-white/15 text-white font-semibold':'text-slate-300 hover:bg-white/10'}">Usuários</button>
+          <button onclick="setPage('Ministérios');closeMobileMenu()" class="w-full rounded-xl px-4 py-2 text-left text-sm transition ${page==='Ministérios'?'bg-white/15 text-white font-semibold':'text-slate-300 hover:bg-white/10'}">Ministérios</button>
+        </div>
+      </div>`;
+    }
+    return `<button onclick="setPage('${m}');closeMobileMenu()" class="w-full rounded-2xl px-4 py-3 text-left text-sm transition ${page===m?'bg-orange-500 text-white shadow-lg':'text-slate-300 hover:bg-white/10'}">${m}</button>`;
+  }).join('');
+
+  const brand = `<div class="mb-10 flex items-center gap-4">
+    <div class="bg-white rounded-3xl p-3 shadow-md"><img src="${LOGO}" class="h-14 w-14 object-contain"></div>
+    <div><h1 class="text-2xl font-black leading-tight tracking-tight">Agenda Família Real</h1><div class="mt-1 h-1 w-16 rounded-full bg-orange-500"></div></div>
+  </div>`;
+
+  const sidebar = `<div class="p-7">${brand}<nav class="space-y-2">${navHtml}</nav></div>`;
+
+  el.innerHTML=`<div class="min-h-screen bg-[#f5f6fb] text-slate-900">
+    <div id="mobileBackdrop" class="mobile-backdrop" onclick="closeMobileMenu()"></div>
+    <aside id="mobileSidebar" class="mobile-sidebar bg-[#040036] text-white lg:hidden">${sidebar}</aside>
+    <aside class="fixed left-0 top-0 hidden h-full w-72 bg-[#040036] text-white lg:block">${sidebar}</aside>
+
+    <main class="lg:ml-72">
+      <header class="sticky top-0 z-10 flex items-center justify-between border-b bg-white/90 px-5 py-4 backdrop-blur lg:px-9">
+        <div class="flex items-center gap-3">
+          <button type="button" onclick="openMobileMenu()" class="mobile-menu-btn btn border bg-white text-slate-700">☰</button>
+          <div><h2 class="text-xl font-bold lg:text-2xl">${esc(page)}</h2><p class="text-sm text-slate-500">Firestore em tempo real</p></div>
+        </div>
+        <div class="flex items-center gap-3">
+          <div class="hidden text-right text-sm sm:block"><div class="font-semibold">${esc(user.name)}</div><div class="text-slate-500">${esc(primaryRole())}</div></div>
+          ${!hasRole('Pastor')?`<button onclick="setPage('Nova Solicitação')" class="btn bg-[#010770] text-white hidden sm:inline-flex">＋ Nova Solicitação</button>`:''}
+          <button onclick="logout()" class="btn border bg-white text-slate-700">Sair</button>
+        </div>
+      </header>
+      ${content}
+    </main>
+  </div>`;
+}
 function hero(a,b,c){return `<div class="mb-6 rounded-3xl bg-[#040036] p-6 text-white"><span class="rounded-full bg-orange-500 px-3 py-1 text-xs font-semibold uppercase tracking-wider">${a}</span><h3 class="mt-4 text-2xl font-bold">${b}</h3><p class="mt-2 text-sm text-slate-200">${c}</p></div>`}
 function empty(t){return `<div class="rounded-3xl border border-dashed p-8 text-center text-sm text-slate-500">${t}</div>`}
 function card(r,actions=''){return `<div class="rounded-3xl border bg-white p-4"><div class="flex flex-col justify-between gap-3 md:flex-row md:items-center"><div><h4 class="font-semibold">📌 ${esc(title(r))}</h4><p class="text-sm text-slate-500">${esc(r.type)} • ${esc(r.ministry||'Sem ministério')} • ${esc(r.responsible||'Sem responsável')}</p><p class="text-xs text-slate-400">${esc(r.date)} às ${esc(r.startTime)} • ${esc(r.location)}</p></div><div class="flex flex-wrap gap-2"><span class="badge ${statusClass(r.status)}">${esc(r.status)}</span>${actions}</div></div></div>`}
@@ -640,7 +780,7 @@ function relatorios(){
       </div>
       <button onclick="printReport()" class="btn bg-[#010770] text-white">Imprimir relatório</button>
     </div>
-    <table class="w-full text-left text-sm">
+    <div class="overflow-x-auto"><table class="w-full text-left text-sm">
       <thead><tr class="border-b bg-slate-50">${head.map(h=>`<th class="p-3">${h}</th>`).join('')}</tr></thead>
       <tbody>${body.length?body.map(row=>`<tr class="border-b">${row.map(c=>`<td class="p-3">${esc(c||'')}</td>`).join('')}</tr>`).join(''):`<tr><td colspan="${head.length}" class="p-6 text-center text-slate-500">Nenhuma agenda encontrada.</td></tr>`}</tbody>
     </table>
@@ -1123,7 +1263,7 @@ function usuariosAdmin(){
       </div>
       <div class="card p-5">
         <h3 class="mb-5 text-lg font-bold">Usuários cadastrados</h3>
-        <div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead><tr class="border-b bg-slate-50"><th class="p-3">Usuário</th><th class="p-3">Perfis</th><th class="p-3 text-right">Ações</th></tr></thead><tbody>${rows}</tbody></table></div>
+        <div class="overflow-x-auto"><div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead><tr class="border-b bg-slate-50"><th class="p-3">Usuário</th><th class="p-3">Perfis</th><th class="p-3 text-right">Ações</th></tr></thead><tbody>${rows}</tbody></table></div>
         <p class="mt-4 text-xs text-slate-500">Observação: o login é 100% local. Login 100% local pelo Firestore.</p>
       </div>
     </div></section>`);
