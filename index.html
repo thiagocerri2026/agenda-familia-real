@@ -203,7 +203,7 @@ const LOGO="data:image/jpeg;base64,/9j/4gxYSUNDX1BST0ZJTEUAAQEAAAxITGlubwIQAABtb
 const fb=initializeApp(firebaseConfig), secondaryFb=initializeApp(firebaseConfig,'secondary'), db=getFirestore(fb), auth=getAuth(fb), secondaryAuth=getAuth(secondaryFb), el=document.getElementById('app');
 const agendaTypes=['Evento','Reunião','Apresentação de Criança','Aconselhamento Pastoral','Acompanhamento de Liderança','Culto / Programação fixa'];
 const defaults={ministerios:['Crianças','Adolescentes','Jovens 15–23','Jovens 23+','Homens','Mulheres','Casais','Louvor','Eventos','Social','Apoio / Voluntários','Consolidação','Ensino'],lideres:['João Líder','Maria Líder'],pastores:['Thiago','Gildasio','Marcio Lisboa','Marcio Tadeu','Pastor Mario','Marcelo','Gabriel']};
-let user=null,page='Calendário',editingId=null,ready=false,authReady=false,requests=[],ministerios=[],lideres=[],pastores=[],userProfiles=[],dataStarted=false,loadedData={usuarios:false,solicitacoes:false,ministerios:false},requestsSolicitacoes=[],requestsAgendas=[];
+let user=null,page='Calendário',editingId=null,ready=false,authReady=false,requests=[],ministerios=[],ministeriosDocs=[],lideres=[],pastores=[],userProfiles=[],dataStarted=false,loadedData={usuarios:false,solicitacoes:false,ministerios:false},requestsSolicitacoes=[],requestsAgendas=[];
 let calendarMonth=new Date().toISOString().slice(0,7);
 window.setPage=setPage;window.logout=logout;window.setCalendarMonth=setCalendarMonth;window.changeCalendarMonth=changeCalendarMonth;window.login=login;window.updateStatus=updateStatus;window.editRequest=editRequest;window.addItem=addItem;window.delItem=delItem;window.submitRequest=submitRequest;window.renderFormFields=renderFormFields;window.relatorios=relatorios;window.printReport=printReport;window.downloadExcel=downloadExcel;window.addMinisterioLocal=addMinisterioLocal;
 function esc(v){return String(v??'').replace(/[&<>"']/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]))}
@@ -291,11 +291,16 @@ function startRealtimeData(){
   });
 
   onSnapshot(collection(db,'ministerios'), snap=>{
-    const dbMinisterios=mapSnapshotDocs(snap)
-      .map(x=>x.name || x.nome || x.title || x.id)
-      .filter(Boolean);
+    ministeriosDocs=mapSnapshotDocs(snap).map(x=>({
+      ...x,
+      label: x.name || x.nome || x.title || x.id
+    })).filter(x=>x.label);
+
+    const dbMinisterios=ministeriosDocs.map(x=>x.label).filter(Boolean);
+
     ministerios=Array.from(new Set([...defaults.ministerios,...dbMinisterios]))
       .sort((a,b)=>String(a).localeCompare(String(b),'pt-BR'));
+
     markDataLoaded('ministerios');
   }, err=>{
     console.error('Erro ao carregar ministerios:',err);
@@ -1449,9 +1454,98 @@ async function addMinisterioLocal(e){
 }
 
 
+async function editMinisterioLocal(id, nomeAtual){
+  if(!user || !hasRole('Admin')){
+    alert('Apenas administrador pode alterar ministérios.');
+    return;
+  }
+
+  const novoNome=prompt('Alterar nome do ministério:', nomeAtual || '');
+  if(novoNome===null) return;
+
+  const nome=(novoNome||'').trim();
+  if(!nome){
+    alert('Informe o nome do ministério.');
+    return;
+  }
+
+  try{
+    if(String(id||'').startsWith('default_')){
+      await addDoc(collection(db,'ministerios'),{
+        name:nome,
+        nome:nome,
+        antigoNome:nomeAtual,
+        createdAt:serverTimestamp(),
+        updatedAt:serverTimestamp(),
+        updatedBy:user?.username||user?.name||''
+      });
+    }else{
+      await setDoc(doc(db,'ministerios',String(id)),{
+        name:nome,
+        nome:nome,
+        updatedAt:serverTimestamp(),
+        updatedBy:user?.username||user?.name||''
+      },{merge:true});
+    }
+
+    ministerios=ministerios.map(x=>x===nomeAtual?nome:x).sort((a,b)=>String(a).localeCompare(String(b),'pt-BR'));
+    toast('Ministério alterado');
+    render();
+  }catch(err){
+    console.error('Erro ao alterar ministério:', err);
+    alert('Erro ao alterar ministério: '+err.message);
+  }
+}
+
+async function deleteMinisterioLocal(id, nome){
+  if(!user || !hasRole('Admin')){
+    alert('Apenas administrador pode excluir ministérios.');
+    return;
+  }
+
+  if(!confirm('Deseja excluir o ministério "'+nome+'"?')) return;
+
+  try{
+    if(String(id||'').startsWith('default_')){
+      // Ministério padrão do sistema: remove apenas da visualização local nesta sessão
+      ministerios=ministerios.filter(x=>x!==nome);
+      toast('Ministério removido da lista');
+      render();
+      return;
+    }
+
+    await deleteDoc(doc(db,'ministerios',String(id)));
+    ministeriosDocs=ministeriosDocs.filter(x=>String(x.id)!==String(id));
+    ministerios=ministerios.filter(x=>x!==nome);
+    toast('Ministério excluído');
+    render();
+  }catch(err){
+    console.error('Erro ao excluir ministério:', err);
+    alert('Erro ao excluir ministério: '+err.message);
+  }
+}
+
+window.editMinisterioLocal=editMinisterioLocal;
+window.deleteMinisterioLocal=deleteMinisterioLocal;
+
+
 
 
 function ministeriosPage(){
+  const docsByLabel=new Map();
+  ministeriosDocs.forEach(d=>docsByLabel.set(String(d.label),d));
+
+  const rows=ministerios.map(n=>{
+    const docInfo=docsByLabel.get(String(n)) || {id:'default_'+String(n).toLowerCase().replace(/[^a-z0-9]+/g,'_'), label:n, isDefault:true};
+    return `<div class="flex items-center justify-between gap-3 rounded-2xl border bg-white p-3">
+      <span class="font-semibold">${esc(n)}</span>
+      <div class="flex gap-2">
+        <button type="button" onclick="editMinisterioLocal('${esc(docInfo.id)}','${esc(n)}')" class="btn border bg-white text-blue-700">Alterar</button>
+        <button type="button" onclick="deleteMinisterioLocal('${esc(docInfo.id)}','${esc(n)}')" class="btn border bg-white text-red-600">Excluir</button>
+      </div>
+    </div>`;
+  }).join('');
+
   shell(`<section class="app-content">
     ${hero('Cadastros','Ministérios','Cadastro e manutenção dos ministérios usados nas solicitações.')}
 
@@ -1467,12 +1561,13 @@ function ministeriosPage(){
       <div class="card p-5">
         <h3 class="mb-5 text-lg font-bold">Ministérios cadastrados</h3>
         <div class="space-y-2">
-          ${ministerios.length ? ministerios.map(n=>`<div class="flex items-center justify-between rounded-2xl border bg-white p-3"><span class="font-semibold">${esc(n)}</span></div>`).join('') : empty('Nenhum ministério cadastrado.')}
+          ${ministerios.length ? rows : empty('Nenhum ministério cadastrado.')}
         </div>
       </div>
     </div>
   </section>`);
 }
+
 
 
 function usuariosAdmin(){
