@@ -1649,11 +1649,11 @@ function openChangePasswordModal(){
         </div>
 
         <div class="flex gap-3 pt-3">
-          <button onclick="document.getElementById('changePasswordModal').remove()" class="btn bg-slate-200 text-slate-700 flex-1">
+          <button type="button" onclick="document.getElementById('changePasswordModal').remove()" class="btn bg-slate-200 text-slate-700 flex-1">
             Cancelar
           </button>
 
-          <button onclick="saveOwnPassword()" class="btn bg-[#010770] text-white flex-1">
+          <button type="button" onclick="saveOwnPassword()" class="btn bg-[#010770] text-white flex-1">
             Salvar senha
           </button>
         </div>
@@ -1666,8 +1666,8 @@ function openChangePasswordModal(){
 
 async function saveOwnPassword(){
   try{
-    const pass=document.getElementById('newPasswordField').value.trim();
-    const confirm=document.getElementById('confirmPasswordField').value.trim();
+    const pass=document.getElementById('newPasswordField')?.value.trim() || '';
+    const confirm=document.getElementById('confirmPasswordField')?.value.trim() || '';
 
     if(pass.length < 6){
       toast('A senha deve possuir no mínimo 6 caracteres');
@@ -1679,30 +1679,49 @@ async function saveOwnPassword(){
       return;
     }
 
-    if(!user){
-      toast('Usuário não autenticado');
+    let currentUser = user;
+
+    if(!currentUser){
+      try{
+        const saved=sessionStorage.getItem('afr_local_user');
+        if(saved){
+          currentUser=JSON.parse(saved);
+          user=currentUser;
+        }
+      }catch(e){
+        console.error('Erro ao recuperar sessão local:', e);
+      }
+    }
+
+    if(!currentUser){
+      toast('Sessão expirada. Saia e entre novamente.');
       return;
     }
 
-    // Login local do sistema
-    const localId=user.id || user.username || user.email;
+    // Documento correto do usuário no Firestore
+    const docId = currentUser.uid || currentUser.id || ('user_' + String(currentUser.username || currentUser.email || '').toLowerCase().replace(/[^a-z0-9._-]/g,''));
 
-    await setDoc(doc(db,'usuarios',String(localId)),{
-      password: pass,
-      updatedAt: serverTimestamp(),
-      updatedBy: user.username || user.email || user.name || 'sistema'
+    if(!docId || docId === 'user_'){
+      toast('Não foi possível identificar o usuário.');
+      return;
+    }
+
+    await setDoc(doc(db,'usuarios',String(docId)),{
+      senhaLocal: pass,
+      senhaAlteradaEm: serverTimestamp(),
+      senhaAlteradaPor: currentUser.username || currentUser.email || currentUser.name || 'proprio_usuario'
     },{merge:true});
 
-    // Atualiza sessão local
-    user.password = pass;
-    sessionStorage.setItem('afr_local_user', JSON.stringify(user));
+    currentUser.senhaLocal = pass;
+    user = currentUser;
+    sessionStorage.setItem('afr_local_user', JSON.stringify(currentUser));
 
     toast('Senha alterada com sucesso');
     document.getElementById('changePasswordModal')?.remove();
 
   }catch(err){
-    console.error(err);
-    toast('Erro ao alterar senha');
+    console.error('Erro ao alterar própria senha:', err);
+    toast('Erro ao alterar senha: ' + (err.message || 'verifique a conexão'));
   }
 }
 
