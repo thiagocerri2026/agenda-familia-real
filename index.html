@@ -1679,24 +1679,29 @@ async function saveOwnPassword(){
       return;
     }
 
-    if(!auth.currentUser){
+    if(!user){
       toast('Usuário não autenticado');
       return;
     }
 
-    await updatePassword(auth.currentUser, pass);
+    // Login local do sistema
+    const localId=user.id || user.username || user.email;
+
+    await setDoc(doc(db,'usuarios',String(localId)),{
+      password: pass,
+      updatedAt: serverTimestamp(),
+      updatedBy: user.username || user.email || user.name || 'sistema'
+    },{merge:true});
+
+    // Atualiza sessão local
+    user.password = pass;
+    sessionStorage.setItem('afr_local_user', JSON.stringify(user));
 
     toast('Senha alterada com sucesso');
     document.getElementById('changePasswordModal')?.remove();
 
   }catch(err){
     console.error(err);
-
-    if(String(err.code||'').includes('requires-recent-login')){
-      toast('Por segurança, faça login novamente antes de alterar a senha');
-      return;
-    }
-
     toast('Erro ao alterar senha');
   }
 }
