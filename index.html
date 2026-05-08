@@ -203,7 +203,7 @@ const LOGO="data:image/jpeg;base64,/9j/4gxYSUNDX1BST0ZJTEUAAQEAAAxITGlubwIQAABtb
 const fb=initializeApp(firebaseConfig), secondaryFb=initializeApp(firebaseConfig,'secondary'), db=getFirestore(fb), auth=getAuth(fb), secondaryAuth=getAuth(secondaryFb), el=document.getElementById('app');
 const agendaTypes=['Evento','Reunião','Apresentação de Criança','Aconselhamento Pastoral','Acompanhamento de Liderança','Culto / Programação fixa'];
 const defaults={ministerios:['Crianças','Adolescentes','Jovens 15–23','Jovens 23+','Homens','Mulheres','Casais','Louvor','Eventos','Social','Apoio / Voluntários','Consolidação','Ensino'],lideres:['João Líder','Maria Líder'],pastores:['Thiago','Gildasio','Marcio Lisboa','Marcio Tadeu','Pastor Mario','Marcelo','Gabriel']};
-let user=null,page='Calendário',editingId=null,ready=false,authReady=false,requests=[],ministerios=[],ministeriosDocs=[],ministeriosOcultos=[],lideres=[],pastores=[],userProfiles=[],dataStarted=false,loadedData={usuarios:false,solicitacoes:false,ministerios:false},requestsSolicitacoes=[],requestsAgendas=[];
+let user=null,page='Calendário',editingId=null,ready=false,authReady=false,requests=[],ministerios=[],ministeriosDocs=[],ministeriosOcultos=[],lideres=[],pastores=[],userProfiles=[],notifications=[],dataStarted=false,loadedData={usuarios:false,solicitacoes:false,ministerios:false},requestsSolicitacoes=[],requestsAgendas=[];
 let calendarMonth=new Date().toISOString().slice(0,7);
 window.setPage=setPage;window.logout=logout;window.setCalendarMonth=setCalendarMonth;window.changeCalendarMonth=changeCalendarMonth;window.login=login;window.updateStatus=updateStatus;window.editRequest=editRequest;window.addItem=addItem;window.delItem=delItem;window.submitRequest=submitRequest;window.renderFormFields=renderFormFields;window.relatorios=relatorios;window.printReport=printReport;window.downloadExcel=downloadExcel;window.addMinisterioLocal=addMinisterioLocal;
 function esc(v){return String(v??'').replace(/[&<>"']/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]))}
@@ -223,6 +223,82 @@ function primaryRole(){
   const r=userRoles();
   return r.length ? r.join(',') : '';
 }
+
+function normalizeKey(v){
+  return String(v||'').trim().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[^a-z0-9._-]/g,'');
+}
+function currentUserKeys(){
+  if(!user) return [];
+  return Array.from(new Set([user.uid,user.id,user.username,user.email,user.name]
+    .filter(Boolean).map(x=>normalizeKey(x))));
+}
+function findUserByNameOrUsername(value){
+  const key=normalizeKey(value);
+  if(!key) return null;
+  return userProfiles.find(u=>[u.id,u.username,u.email,u.name].some(x=>normalizeKey(x)===key)) || null;
+}
+
+function getUserMinistries(u){
+  const raw = u.ministryLead || u.ministerioLidera || u.ministerio || u.ministry || u.ministeriosLidera || [];
+  const arr = Array.isArray(raw) ? raw : String(raw||'').split(',');
+  return arr.map(x=>String(x).trim()).filter(Boolean);
+}
+function hasLeaderRole(u){
+  const roles=Array.isArray(u.roles)?u.roles:(u.role?String(u.role).split(',').map(x=>x.trim()).filter(Boolean):[]);
+  return roles.some(r=>normalizeKey(r)==='lider' || normalizeKey(r)==='líder');
+}
+function isSameMinistry(a,b){
+  const aa=normalizeKey(a).replace(/^min/,'').replace(/^ministerio/,'');
+  const bb=normalizeKey(b).replace(/^min/,'').replace(/^ministerio/,'');
+  return aa===bb || aa.includes(bb) || bb.includes(aa);
+}
+function usersByLeaderMinistry(ministryName){
+  return userProfiles.filter(u=>hasLeaderRole(u) && getUserMinistries(u).some(m=>isSameMinistry(m,ministryName)));
+}
+function ministriesForAutoNotification(){
+  return ['Min. Comunicação','Min. Mídia','Min. Louvor','Min. Apoio'];
+}
+function notificationTargetFromRequest(r){
+  const tipo=String(r.type || r.tipo || '').trim();
+  if(tipo==='Aconselhamento Pastoral' || tipo==='Acompanhamento de Liderança' || tipo==='Aconselhamento Liderança'){
+    return r.pastor || r.pastorResponsavel || r.pastorName || r.responsavelPastor || '';
+  }
+  if(tipo==='Reunião' || tipo==='Reuniao'){
+    return r.directResponsible || r.responsavelDireto || r.lider || r.liderResponsavel || '';
+  }
+  return '';
+}
+function unreadNotificationsCount(){
+  return notifications.filter(n=>!n.read).length;
+}
+
+function isResponsibleForRequest(r){
+  const keys=currentUserKeys();
+  const candidates=[
+    r.responsiblePastor,r.pastor,r.pastorResponsavel,r.responsavelPastor,
+    r.responsible,r.responsavelDireto,r.directResponsible,r.lider,r.liderResponsavel
+  ].filter(Boolean).map(x=>normalizeKey(x));
+
+  // Para Aconselhamento/Acompanhamento, confere pastor responsável.
+  const tipo=String(r.type||r.tipo||'');
+  if(tipo==='Aconselhamento Pastoral' || tipo==='Acompanhamento de Liderança' || tipo==='Aconselhamento Liderança'){
+    return [r.responsiblePastor,r.pastor,r.pastorResponsavel,r.responsavelPastor].filter(Boolean).map(x=>normalizeKey(x)).some(x=>keys.includes(x));
+  }
+
+  // Para Reunião, confere responsável direto.
+  if(tipo==='Reunião' || tipo==='Reuniao'){
+    return [r.responsible,r.responsavelDireto,r.directResponsible,r.lider,r.liderResponsavel].filter(Boolean).map(x=>normalizeKey(x)).some(x=>keys.includes(x));
+  }
+
+  return candidates.some(x=>keys.includes(x));
+}
+function openRequestFromNotification(id){
+  const n=notifications.find(x=>String(x.id)===String(id));
+  if(n && n.requestId) detalheAgendamento(n.requestId,'Notificações');
+}
+window.openRequestFromNotification=openRequestFromNotification;
 
 function safeDateValue(v){
   if(!v) return '';
@@ -323,6 +399,25 @@ function startRealtimeData(){
     console.warn('Config de ministérios não carregada:',err);
   });
 
+  onSnapshot(collection(db,'notificacoes'), snap=>{
+    const keys=currentUserKeys();
+    notifications=mapSnapshotDocs(snap)
+      .filter(n=>{
+        if(n.toAllAdmins && hasRole('Admin')) return true;
+        const recipients=[n.toUserId,n.toUsername,n.toEmail,n.toName,n.destinatario,n.responsavel,n.userId]
+          .filter(Boolean).map(x=>normalizeKey(x));
+        return recipients.some(x=>keys.includes(x));
+      })
+      .sort((a,b)=>{
+        const da=a.createdAt?.toDate?a.createdAt.toDate().getTime():0;
+        const dbb=b.createdAt?.toDate?b.createdAt.toDate().getTime():0;
+        return dbb-da;
+      });
+    render();
+  }, err=>{
+    console.warn('Notificações não carregadas:',err);
+  });
+
   // Mantém listas antigas como fallback, mas a tela usa usuários por perfil.
   lideres=[...defaults.lideres];
   pastores=[...defaults.pastores];
@@ -348,7 +443,7 @@ function restoreLocalSession(){
 function title(r){if(r.type==='Apresentação de Criança')return 'Apresentação - '+(r.childName||'Criança'); if(pastoralType(r.type))return r.type; return r.title||r.type}
 function statusClass(s){return s==='Aprovado'?'bg-emerald-100 text-emerald-700':s==='Ajuste solicitado'?'bg-blue-100 text-blue-700':'bg-orange-100 text-orange-700'}
 function monthLabel(ym){let p=ym.split('-'),n=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];return n[+p[1]-1]+' de '+p[0]}
-function menu(){if(hasRole('Admin'))return ['Dashboard','Calendário','Nova Solicitação','Agendas Pendentes','Agendas Aprovadas','Agenda Pastoral','Relatórios','Cadastros']; if(hasRole('Lider'))return ['Calendário','Nova Solicitação']; if(hasRole('Pastor'))return ['Calendário','Agenda Pastoral']; return ['Calendário']}
+function menu(){if(hasRole('Admin'))return ['Dashboard','Calendário','Nova Solicitação','Agendas Pendentes','Agendas Aprovadas','Agenda Pastoral','Relatórios','Notificações','Cadastros']; if(hasRole('Lider'))return ['Calendário','Nova Solicitação','Notificações']; if(hasRole('Pastor'))return ['Calendário','Agenda Pastoral','Notificações']; return ['Calendário']}
 function setPage(p){if(p!=='Nova Solicitação')editingId=null;page=p;render()} async function logout(){
   try{ await signOut(auth); }catch(e){}
   sessionStorage.removeItem('afr_local_user');
@@ -478,6 +573,7 @@ async function createUserByAdmin(e){
   const senha=document.getElementById('newUserPass').value.trim();
   const name=document.getElementById('newUserName').value.trim() || username;
   const email=username+'@local.agenda';
+  const ministryLead=(document.getElementById('newUserMinistryLead')?.value||'').trim();
 
   const selectedRoles=Array.from(document.querySelectorAll('input[name="newUserRoles"]:checked')).map(x=>x.value);
   const roles=selectedRoles.length ? selectedRoles : ['Lider'];
@@ -520,6 +616,8 @@ async function createUserByAdmin(e){
       role,
       roles,
       email,
+      ministryLead,
+      ministerioLidera:ministryLead,
       senhaLocal:senha,
       active:true,
       createdBy:user.username||user.email||user.name||'',
@@ -567,6 +665,87 @@ async function createUserByAdmin(e){
     }
   }
 }
+
+
+function openUserMinistryModal(uid){
+  const u=userProfiles.find(x=>String(x.id)===String(uid));
+  if(!u){
+    alert('Usuário não encontrado.');
+    return;
+  }
+
+  const atual=(getUserMinistries(u)[0])||'';
+
+  const modal=document.createElement('div');
+  modal.id='userMinistryModal';
+  modal.className='fixed inset-0 z-[99999] flex items-center justify-center bg-black/50 p-4';
+
+  modal.innerHTML=`
+    <div class="bg-white w-full max-w-md rounded-3xl shadow-2xl p-6">
+      <div class="flex items-center justify-between mb-5">
+        <h3 class="text-2xl font-bold text-slate-800">Ministério que lidera</h3>
+        <button type="button" onclick="document.getElementById('userMinistryModal').remove()" class="text-slate-500 hover:text-red-500 text-xl font-bold">✕</button>
+      </div>
+
+      <div class="space-y-4">
+        <div>
+          <label class="label">Usuário</label>
+          <div class="rounded-2xl bg-slate-50 p-3 font-semibold">${esc(u.name||u.username||'-')}</div>
+        </div>
+
+        <div>
+          <label class="label">Selecione o ministério</label>
+          <select id="editUserMinistryLead" class="input">
+            <option value="">Nenhum ministério</option>
+            ${ministerios.map(m=>`<option value="${esc(m)}" ${m===atual?'selected':''}>${esc(m)}</option>`).join('')}
+          </select>
+        </div>
+
+        <div class="flex gap-3 pt-3">
+          <button type="button" onclick="document.getElementById('userMinistryModal').remove()" class="btn bg-slate-200 text-slate-700 flex-1">
+            Cancelar
+          </button>
+
+          <button type="button" onclick="saveUserMinistry('${esc(uid)}')" class="btn bg-[#010770] text-white flex-1">
+            Salvar
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+}
+
+async function saveUserMinistry(uid){
+  const ministryLead=(document.getElementById('editUserMinistryLead')?.value||'').trim();
+
+  try{
+    await setDoc(doc(db,'usuarios',String(uid)),{
+      ministryLead,
+      ministerioLidera:ministryLead,
+      updatedAt:serverTimestamp(),
+      updatedBy:user?.username||user?.name||''
+    },{merge:true});
+
+    userProfiles=userProfiles.map(x=>String(x.id)===String(uid)?{...x,ministryLead,ministerioLidera:ministryLead}:x);
+
+    toast('Ministério do líder atualizado');
+    document.getElementById('userMinistryModal')?.remove();
+    render();
+  }catch(err){
+    console.error('Erro ao alterar ministério do líder:',err);
+    alert('Erro ao alterar ministério: '+err.message);
+  }
+}
+
+async function changeUserMinistry(uid){
+  openUserMinistryModal(uid);
+}
+
+window.openUserMinistryModal=openUserMinistryModal;
+window.saveUserMinistry=saveUserMinistry;
+window.changeUserMinistry=changeUserMinistry;
 
 async function saveUserRoles(uid){
   if(!user || !hasRole('Admin')){ alert('Apenas administrador pode alterar perfis.'); return; }
@@ -768,6 +947,7 @@ function shell(content){
           ${!hasRole('Pastor')?`<button onclick="setPage('Nova Solicitação')" class="btn bg-[#010770] text-white hidden sm:inline-flex">＋ Nova Solicitação</button>`:''}
           
 <div class="flex items-center gap-2">
+  <button onclick="setPage('Notificações')" class="btn bg-white border border-slate-200 text-[#010770] hover:bg-slate-50">🔔 ${unreadNotificationsCount()}</button>
   <button onclick="openChangePasswordModal()" class="btn bg-white border border-slate-200 text-[#010770] hover:bg-slate-50">
     Alterar Senha
   </button>
@@ -802,6 +982,31 @@ async function updateStatus(id,status){
     alert('Erro ao atualizar status: '+err.message);
   }
 }
+
+
+async function approveFromNotification(id){
+  await updateStatus(id,'Aprovado');
+
+  // Marca como lidas as notificações vinculadas à solicitação aprovada.
+  try{
+    const linked=notifications.filter(n=>String(n.requestId)===String(id) && !n.read);
+    for(const n of linked){
+      await setDoc(doc(db,'notificacoes',String(n.id)),{
+        read:true,
+        readAt:serverTimestamp(),
+        readBy:user?.username||user?.name||user?.email||''
+      },{merge:true});
+    }
+    notifications=notifications.map(n=>String(n.requestId)===String(id)?{...n,read:true}:n);
+    page='Notificações';
+    render();
+  }catch(err){
+    console.warn('Não foi possível marcar notificação como lida:',err);
+    page='Notificações';
+    render();
+  }
+}
+window.approveFromNotification=approveFromNotification;
 
 function editRequest(id){
   editingId=String(id);
@@ -857,7 +1062,7 @@ function dashboard(){
 }
 
 
-function detalheAgendamento(id){
+function detalheAgendamento(id,backPage='Agendas Aprovadas'){
   const r=requests.find(x=>String(x.id)===String(id));
   if(!r){
     alert('Agendamento não encontrado.');
@@ -872,7 +1077,7 @@ function detalheAgendamento(id){
     <div class="card p-6">
       <div class="mb-5 flex justify-between gap-3">
         <h3 class="text-xl font-black">${esc(title(r))}</h3>
-        <button onclick="setPage('Agendas Aprovadas')" class="btn border bg-white">Voltar</button>
+        <button onclick="setPage('${esc(backPage)}')" class="btn border bg-white">Voltar</button>
       </div>
 
       <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -1292,6 +1497,104 @@ function renderFormFields(item){
 }
 
 function val(id){return document.getElementById(id)?.value||''}function conflict(ex,cur){return ex.status==='Aprovado'&&ex.date===cur.date&&cur.startTime<ex.endTime&&cur.endTime>ex.startTime}
+
+async function createNotificationForRequest(req, reqId){
+  try{
+    const tipo=String(req.type || req.tipo || '').trim();
+
+    async function sendNotificationTo(target, titulo, mensagem){
+      const targetUser = typeof target === 'object' ? target : findUserByNameOrUsername(target);
+      const targetLabel = typeof target === 'object' ? (target.name || target.username || target.email || '') : target;
+
+      if(!targetUser && !targetLabel) return;
+
+      await addDoc(collection(db,'notificacoes'),{
+        title:titulo,
+        titulo,
+        message:mensagem,
+        mensagem,
+        type:'nova_solicitacao',
+        requestId:reqId || req.id || '',
+        requestType:tipo,
+        read:false,
+        createdAt:serverTimestamp(),
+        createdBy:user?.username||user?.name||user?.email||'',
+        toName: targetUser?.name || targetLabel,
+        toUsername: targetUser?.username || normalizeKey(targetLabel),
+        toEmail: targetUser?.email || '',
+        toUserId: targetUser?.id || ''
+      });
+    }
+
+    const titulo='Nova solicitação: '+tipo;
+    const mensagem=(req.title || req.nome || req.eventName || 'Solicitação')+
+      ' • '+(req.date || req.data || '')+
+      ((req.startTime || req.inicio)?' às '+(req.startTime || req.inicio):'');
+
+    // Evento e Culto/Programação: notificar líderes dos ministérios operacionais.
+    if(tipo==='Evento' || tipo==='Culto / Programação fixa' || tipo==='Culto/Programação'){
+      const ministries=ministriesForAutoNotification();
+      const recipientsMap=new Map();
+
+      ministries.forEach(min=>{
+        usersByLeaderMinistry(min).forEach(u=>{
+          const key=String(u.id || u.username || u.email || u.name);
+          if(key) recipientsMap.set(key,u);
+        });
+      });
+
+      for(const u of recipientsMap.values()){
+        await sendNotificationTo(u,titulo,mensagem);
+      }
+
+      return;
+    }
+
+    const allowed=['Aconselhamento Pastoral','Acompanhamento de Liderança','Aconselhamento Liderança','Reunião','Reuniao'];
+    if(!allowed.includes(tipo)) return;
+
+    const target=notificationTargetFromRequest(req);
+    if(!target){
+      console.warn('Solicitação sem responsável para notificar:', req);
+      return;
+    }
+
+    await sendNotificationTo(target,titulo,mensagem);
+
+  }catch(err){
+    console.error('Erro ao criar notificação:',err);
+  }
+}
+
+async function markNotificationRead(id){
+  try{
+    await setDoc(doc(db,'notificacoes',String(id)),{
+      read:true,
+      readAt:serverTimestamp(),
+      readBy:user?.username||user?.name||user?.email||''
+    },{merge:true});
+    notifications=notifications.map(n=>String(n.id)===String(id)?{...n,read:true}:n);
+    render();
+  }catch(err){
+    console.error('Erro ao marcar notificação:',err);
+    toast('Erro ao marcar notificação');
+  }
+}
+
+async function deleteNotification(id){
+  try{
+    await deleteDoc(doc(db,'notificacoes',String(id)));
+    notifications=notifications.filter(n=>String(n.id)!==String(id));
+    render();
+  }catch(err){
+    console.error('Erro ao excluir notificação:',err);
+    toast('Erro ao excluir notificação');
+  }
+}
+
+window.markNotificationRead=markNotificationRead;
+window.deleteNotification=deleteNotification;
+
 async function submitRequest(e){
   if(e && e.preventDefault) e.preventDefault();
 
@@ -1413,6 +1716,10 @@ async function submitRequest(e){
     }
 
     await setDoc(doc(db,'solicitacoes',String(id)),data,{merge:true});
+
+    if(!editingId){
+      await createNotificationForRequest(data,String(id));
+    }
 
     requests=requests.filter(r=>String(r.id)!==String(id)).concat([{...data,id:String(id)}]);
 
@@ -1568,6 +1875,84 @@ window.deleteMinisterioLocal=deleteMinisterioLocal;
 
 
 
+
+function notificacoesPage(){
+  const unread=unreadNotificationsCount();
+
+  // Mostra todas as solicitações em que o usuário logado é o responsável,
+  // mantendo na tela após aprovação com o status atualizado.
+  const items=requests
+    .filter(r=>isResponsibleForRequest(r))
+    .sort((a,b)=>{
+      const statusOrder = s => s==='Pendente' ? 0 : (s==='Aprovado' ? 1 : 2);
+      const so=statusOrder(a.status)-statusOrder(b.status);
+      if(so!==0) return so;
+      return String((a.date||'')+(a.startTime||'')).localeCompare(String((b.date||'')+(b.startTime||'')));
+    });
+
+  const rows=items.length ? items.map(r=>{
+    const isApproved=r.status==='Aprovado';
+    const isPending=r.status==='Pendente';
+    const badge=isApproved
+      ? '<span class="badge bg-emerald-100 text-emerald-700">Aprovado</span>'
+      : (isPending ? '<span class="badge bg-orange-100 text-orange-700">Pendente</span>' : `<span class="badge bg-blue-100 text-blue-700">${esc(r.status||'Status')}</span>`);
+
+    return `
+      <div class="rounded-3xl border bg-white p-4 ${isApproved?'border-emerald-200 bg-emerald-50/30':''}">
+        <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <div class="mb-2 flex items-center gap-2">
+              ${badge}
+              <b>${esc(title(r))}</b>
+            </div>
+            <p class="text-sm text-slate-600">${esc(r.type||'')} • ${esc(r.ministry||'-')}</p>
+            <p class="text-xs text-slate-400">${esc(r.date||'')} às ${esc(r.startTime||'')} • ${esc(r.location||'-')}</p>
+            <p class="mt-1 text-xs text-slate-500">Solicitado por: ${esc(r.createdBy||'-')}</p>
+            ${isApproved?`<p class="mt-1 text-xs font-semibold text-emerald-700">Aprovado por: ${esc(r.approvedBy||'-')}</p>`:''}
+          </div>
+
+          <div class="flex flex-wrap gap-2">
+            <button type="button" onclick="detalheAgendamento('${esc(r.id)}','Notificações')" class="btn border bg-white text-blue-700">Ver detalhes</button>
+            ${isPending?`<button type="button" onclick="approveFromNotification('${esc(r.id)}')" class="btn bg-emerald-600 text-white">Aprovar</button>`:''}
+            ${isPending?`<button type="button" onclick="deleteSolicitacao('${esc(r.id)}')" class="btn border bg-white text-red-600">Excluir</button>`:''}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('') : empty('Nenhuma solicitação sob sua responsabilidade.');
+
+  const notifRows=notifications.length ? notifications.slice(0,5).map(n=>`
+    <div class="flex flex-col gap-2 rounded-2xl border bg-white p-3 md:flex-row md:items-center md:justify-between ${!n.read?'border-orange-200 bg-orange-50/40':''}">
+      <div>
+        <b>${esc(n.title || n.titulo || 'Notificação')}</b>
+        <div class="text-xs text-slate-500">${esc(n.message || n.mensagem || '')}</div>
+      </div>
+      <div class="flex gap-2">
+        ${n.requestId?`<button type="button" onclick="detalheAgendamento('${esc(n.requestId)}','Notificações')" class="btn border bg-white text-blue-700">Abrir</button>`:''}
+        ${!n.read?`<button type="button" onclick="markNotificationRead('${esc(n.id)}')" class="btn bg-[#010770] text-white">Lida</button>`:''}
+      </div>
+    </div>
+  `).join('') : '';
+
+  const pendingCount=items.filter(x=>x.status==='Pendente').length;
+  const approvedCount=items.filter(x=>x.status==='Aprovado').length;
+
+  shell(`<section class="app-content">
+    ${hero('Notificações','Solicitações sob sua responsabilidade','Pendentes: '+pendingCount+' • Aprovadas: '+approvedCount+' • Notificações não lidas: '+unread)}
+    <div class="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+      <div class="card p-5">
+        <h3 class="mb-5 text-lg font-bold">Solicitações vinculadas a você</h3>
+        <div class="space-y-3">${rows}</div>
+      </div>
+      <div class="card p-5">
+        <h3 class="mb-5 text-lg font-bold">Últimas notificações</h3>
+        <div class="space-y-3">${notifRows || empty('Nenhuma notificação para você.')}</div>
+      </div>
+    </div>
+  </section>`);
+}
+
+
 function ministeriosPage(){
   const docsByLabel=new Map();
   ministeriosDocs.forEach(d=>docsByLabel.set(String(d.label),d));
@@ -1619,6 +2004,7 @@ function usuariosAdmin(){
         <div class="font-bold">${esc(u.name||'-')}</div>
         <div class="text-xs text-slate-600">Usuário: <b>${esc(localUser||'-')}</b></div>
         <div class="text-xs text-slate-400">Interno: ${esc(u.email||'')}</div>
+        <div class="text-xs text-slate-500">Ministério: <b>${esc((getUserMinistries(u)[0])||'-')}</b></div>
       </td>
       <td class="p-3 align-top">
         <div class="grid gap-2 md:grid-cols-3">
@@ -1629,6 +2015,7 @@ function usuariosAdmin(){
       </td>
       <td class="p-3 text-right align-top whitespace-nowrap">
         <button type="button" data-action="save-user-roles" data-id="${u.id}" onclick="window.saveUserRoles(\'${u.id}\')" class="btn bg-[#010770] text-white">Salvar perfil</button>
+        <button type="button" onclick="window.changeUserMinistry(\'${u.id}\')" class="btn border bg-white text-blue-700 ml-2">Ministério</button>
         <button type="button" data-action="change-user-password" data-id="${u.id}" onclick="window.changeUserPassword(\'${u.id}\')" class="btn border bg-white text-blue-700 ml-2">Alterar senha</button>
         <button type="button" data-action="delete-user-profile" data-id="${u.id}" onclick="window.delUserProfile(\'${u.id}\')" class="btn border bg-white text-red-600 ml-2">Excluir usuário</button>
       </td>
@@ -1643,6 +2030,14 @@ function usuariosAdmin(){
           <div><label class="label">Nome</label><input id="newUserName" class="input" placeholder="Nome do usuário"></div>
           <div><label class="label">Usuário local</label><input id="newUsername" class="input" placeholder="Ex: marcio, pastor, lider1"><p class="mt-1 text-xs text-slate-500">O login será feito por este usuário, não por e-mail.</p></div>
           <div><label class="label">Senha inicial</label><input id="newUserPass" type="password" class="input" placeholder="mínimo 6 caracteres"></div>
+          <div>
+            <label class="label">Ministério que lidera</label>
+            <select id="newUserMinistryLead" class="input">
+              <option value="">Selecione...</option>
+              ${ministerios.map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join('')}
+            </select>
+            <p class="mt-1 text-xs text-slate-500">Preencha quando o usuário for líder de um ministério.</p>
+          </div>
           <div><label class="label">Perfis de acesso</label><div class="grid gap-3 md:grid-cols-3">
             <label class="flex items-center gap-3 rounded-2xl border p-4 cursor-pointer"><input type="checkbox" name="newUserRoles" value="Lider" class="h-5 w-5" checked><span class="font-semibold">Líder</span></label>
             <label class="flex items-center gap-3 rounded-2xl border p-4 cursor-pointer"><input type="checkbox" name="newUserRoles" value="Pastor" class="h-5 w-5"><span class="font-semibold">Pastor</span></label>
@@ -1664,7 +2059,10 @@ function usuariosAdmin(){
 
 globalThis.createUserByAdmin=createUserByAdmin;
 globalThis.saveUserRoles=saveUserRoles;
-globalThis.changeUserPassword=changeUserPassword;globalThis.resetUserPassword=changeUserPassword;globalThis.changeUserPassword=changeUserPassword;globalThis.resetUserPassword=changeUserPassword;
+globalThis.changeUserPassword=changeUserPassword;
+globalThis.changeUserMinistry=changeUserMinistry;
+globalThis.saveUserMinistry=saveUserMinistry;
+globalThis.openUserMinistryModal=openUserMinistryModal;globalThis.resetUserPassword=changeUserPassword;globalThis.changeUserPassword=changeUserPassword;globalThis.resetUserPassword=changeUserPassword;
 globalThis.delUserProfile=delUserProfile;
 globalThis.deleteSolicitacao=deleteSolicitacao;
 
@@ -1861,6 +2259,6 @@ window.openChangePasswordModal=openChangePasswordModal;
 window.saveOwnPassword=saveOwnPassword;
 
 
-function render(){if(!authReady){el.innerHTML='<div class="min-h-screen flex items-center justify-center bg-[#040036] text-white font-bold">Carregando autenticação...</div>';return}if(!user){loginView();return}if(!ready){shell('<section class="p-5 lg:p-9"><div class="card p-8 text-center">Carregando Firebase...</div></section>');return}if(page==='Dashboard')dashboard();else if(page==='Calendário')calendario();else if(page==='Nova Solicitação')novaSolicitacao();else if(page==='Agendas Pendentes')pendentes();else if(page==='Agendas Aprovadas')aprovadas();else if(page==='Agenda Pastoral')pastoral();else if(page==='Relatórios')relatorios();else if(page==='Cadastros')usuariosAdmin();else if(page==='Usuários')usuariosAdmin();else if(page==='Ministérios')ministeriosPage();else dashboard()}
+function render(){if(!authReady){el.innerHTML='<div class="min-h-screen flex items-center justify-center bg-[#040036] text-white font-bold">Carregando autenticação...</div>';return}if(!user){loginView();return}if(!ready){shell('<section class="p-5 lg:p-9"><div class="card p-8 text-center">Carregando Firebase...</div></section>');return}if(page==='Dashboard')dashboard();else if(page==='Calendário')calendario();else if(page==='Nova Solicitação')novaSolicitacao();else if(page==='Agendas Pendentes')pendentes();else if(page==='Agendas Aprovadas')aprovadas();else if(page==='Agenda Pastoral')pastoral();else if(page==='Relatórios')relatorios();else if(page==='Notificações')notificacoesPage();else if(page==='Cadastros')usuariosAdmin();else if(page==='Usuários')usuariosAdmin();else if(page==='Ministérios')ministeriosPage();else dashboard()}
 restoreLocalSession();
 </script></body></html>
