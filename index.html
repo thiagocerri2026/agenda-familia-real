@@ -203,7 +203,7 @@ const LOGO="data:image/jpeg;base64,/9j/4gxYSUNDX1BST0ZJTEUAAQEAAAxITGlubwIQAABtb
 const fb=initializeApp(firebaseConfig), secondaryFb=initializeApp(firebaseConfig,'secondary'), db=getFirestore(fb), auth=getAuth(fb), secondaryAuth=getAuth(secondaryFb), el=document.getElementById('app');
 const agendaTypes=['Evento','Reunião','Apresentação de Criança','Aconselhamento Pastoral','Acompanhamento de Liderança','Culto / Programação fixa'];
 const defaults={ministerios:['Crianças','Adolescentes','Jovens 15–23','Jovens 23+','Homens','Mulheres','Casais','Louvor','Eventos','Social','Apoio / Voluntários','Consolidação','Ensino'],lideres:['João Líder','Maria Líder'],pastores:['Thiago','Gildasio','Marcio Lisboa','Marcio Tadeu','Pastor Mario','Marcelo','Gabriel']};
-let user=null,page='Calendário',editingId=null,ready=false,authReady=false,requests=[],ministerios=[],ministeriosDocs=[],lideres=[],pastores=[],userProfiles=[],dataStarted=false,loadedData={usuarios:false,solicitacoes:false,ministerios:false},requestsSolicitacoes=[],requestsAgendas=[];
+let user=null,page='Calendário',editingId=null,ready=false,authReady=false,requests=[],ministerios=[],ministeriosDocs=[],ministeriosOcultos=[],lideres=[],pastores=[],userProfiles=[],dataStarted=false,loadedData={usuarios:false,solicitacoes:false,ministerios:false},requestsSolicitacoes=[],requestsAgendas=[];
 let calendarMonth=new Date().toISOString().slice(0,7);
 window.setPage=setPage;window.logout=logout;window.setCalendarMonth=setCalendarMonth;window.changeCalendarMonth=changeCalendarMonth;window.login=login;window.updateStatus=updateStatus;window.editRequest=editRequest;window.addItem=addItem;window.delItem=delItem;window.submitRequest=submitRequest;window.renderFormFields=renderFormFields;window.relatorios=relatorios;window.printReport=printReport;window.downloadExcel=downloadExcel;window.addMinisterioLocal=addMinisterioLocal;
 function esc(v){return String(v??'').replace(/[&<>"']/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]))}
@@ -299,6 +299,7 @@ function startRealtimeData(){
     const dbMinisterios=ministeriosDocs.map(x=>x.label).filter(Boolean);
 
     ministerios=Array.from(new Set([...defaults.ministerios,...dbMinisterios]))
+      .filter(n=>!ministeriosOcultos.includes(String(n).toLowerCase()))
       .sort((a,b)=>String(a).localeCompare(String(b),'pt-BR'));
 
     markDataLoaded('ministerios');
@@ -306,6 +307,20 @@ function startRealtimeData(){
     console.error('Erro ao carregar ministerios:',err);
     ministerios=[...defaults.ministerios];
     markDataLoaded('ministerios');
+  });
+
+  onSnapshot(doc(db,'config','ministerios'), snap=>{
+    const cfg=snap.exists()?snap.data():{};
+    ministeriosOcultos=Array.isArray(cfg.ocultos)?cfg.ocultos.map(x=>String(x).toLowerCase()):[];
+
+    const dbMinisterios=ministeriosDocs.map(x=>x.label).filter(Boolean);
+    ministerios=Array.from(new Set([...defaults.ministerios,...dbMinisterios]))
+      .filter(n=>!ministeriosOcultos.includes(String(n).toLowerCase()))
+      .sort((a,b)=>String(a).localeCompare(String(b),'pt-BR'));
+
+    render();
+  }, err=>{
+    console.warn('Config de ministérios não carregada:',err);
   });
 
   // Mantém listas antigas como fallback, mas a tela usa usuários por perfil.
@@ -1435,6 +1450,12 @@ async function addMinisterioLocal(e){
       createdBy:user?.username||user?.name||''
     });
 
+    await setDoc(doc(db,'config','ministerios'),{
+      ocultos: ministeriosOcultos.filter(x=>x!==String(nome).toLowerCase()),
+      updatedAt: serverTimestamp(),
+      updatedBy: user?.username||user?.name||''
+    },{merge:true});
+
     // Atualiza a tela imediatamente, sem esperar o snapshot.
     if(!ministerios.includes(nome)){
       ministerios=[...ministerios,nome].sort();
@@ -1479,6 +1500,13 @@ async function editMinisterioLocal(id, nomeAtual){
         updatedAt:serverTimestamp(),
         updatedBy:user?.username||user?.name||''
       });
+
+      const oculto=String(nomeAtual).toLowerCase();
+      await setDoc(doc(db,'config','ministerios'),{
+        ocultos:Array.from(new Set([...ministeriosOcultos, oculto])),
+        updatedAt:serverTimestamp(),
+        updatedBy:user?.username||user?.name||''
+      },{merge:true});
     }else{
       await setDoc(doc(db,'ministerios',String(id)),{
         name:nome,
@@ -1507,9 +1535,18 @@ async function deleteMinisterioLocal(id, nome){
 
   try{
     if(String(id||'').startsWith('default_')){
-      // Ministério padrão do sistema: remove apenas da visualização local nesta sessão
+      const oculto=String(nome).toLowerCase();
+      const novaLista=Array.from(new Set([...ministeriosOcultos, oculto]));
+
+      await setDoc(doc(db,'config','ministerios'),{
+        ocultos:novaLista,
+        updatedAt:serverTimestamp(),
+        updatedBy:user?.username||user?.name||''
+      },{merge:true});
+
+      ministeriosOcultos=novaLista;
       ministerios=ministerios.filter(x=>x!==nome);
-      toast('Ministério removido da lista');
+      toast('Ministério excluído');
       render();
       return;
     }
