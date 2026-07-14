@@ -1167,9 +1167,9 @@ function calendario(){
     let evs=approved.filter(r=>Number((r.date||'').split('-')[2])===day);
     grid+=`<div class="min-h-32 border-t bg-white p-3">
       <div class="mb-2 text-sm font-bold">${day}</div>
-      ${evs.map(e=>`<div class="mb-2 rounded-xl bg-[#010770]/10 px-2 py-2 text-xs text-[#010770]">
+      ${evs.map(e=>`<button type="button" onclick="detalheAgendamento('${esc(e.id)}','Calendário')" class="mb-2 block w-full rounded-xl bg-[#010770]/10 px-2 py-2 text-left text-xs text-[#010770] transition hover:bg-[#010770]/20 focus:outline-none focus:ring-2 focus:ring-[#010770]/30" title="Clique para ver os detalhes">
         <b>${esc(e.startTime||'')}</b><br>${esc(title(e))}
-      </div>`).join('')}
+      </button>`).join('')}
     </div>`;
   }
 
@@ -1186,7 +1186,7 @@ function calendario(){
     if(evs.length){
       mobileList+=`<div class="mobile-day-card">
         <div class="mobile-day-title">${day} • ${days[new Date(year,month-1,day).getDay()]}</div>
-        ${evs.map(e=>`<div class="mobile-event"><b>${esc(e.startTime||'')} - ${esc(e.endTime||'')}</b><br>${esc(title(e))}<br><span class="text-slate-500">${esc(e.location||'')}</span></div>`).join('')}
+        ${evs.map(e=>`<button type="button" onclick="detalheAgendamento('${esc(e.id)}','Calendário')" class="mobile-event block w-full text-left" title="Clique para ver os detalhes"><b>${esc(e.startTime||'')} - ${esc(e.endTime||'')}</b><br>${esc(title(e))}<br><span class="text-slate-500">${esc(e.location||'')}</span></button>`).join('')}
       </div>`;
     }
   }
